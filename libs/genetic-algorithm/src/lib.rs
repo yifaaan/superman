@@ -1,20 +1,26 @@
-use rand::{seq::SliceRandom, RngCore};
+use rand::{seq::SliceRandom, Rng, RngCore};
 use std::ops::Index;
 
 pub struct GeneticAlgorithm<S> {
     selection_method: S,
+    crossover_method: Box<dyn CrossoverMethod>,
 }
 
 impl<S: SelectionMethod> GeneticAlgorithm<S> {
-    pub fn new(selection_method: S) -> Self {
-        Self { selection_method }
+    pub fn new(selection_method: S, crossover_method: impl CrossoverMethod + 'static) -> Self {
+        Self {
+            selection_method,
+            crossover_method: Box::new(crossover_method),
+        }
     }
     pub fn evolve<I: Individual>(&self, rng: &mut dyn RngCore, population: &[I]) -> Vec<I> {
         assert!(!population.is_empty());
         (0..population.len())
             .map(|_| {
-                let parent_a = self.selection_method.select(rng, population);
-                let parent_b = self.selection_method.select(rng, population);
+                // 得到双亲的染色体
+                let parent_a = self.selection_method.select(rng, population).chromosome();
+                let parent_b = self.selection_method.select(rng, population).chromosome();
+                let mut child = self.crossover_method.crossover(rng, parent_a, parent_b);
             })
             .collect()
     }
@@ -92,6 +98,48 @@ impl IntoIterator for Chromosome {
     }
 }
 
+/// 交叉变异
+pub trait CrossoverMethod {
+    fn crossover(
+        &self,
+        rng: &mut dyn RngCore,
+        parent_a: &Chromosome,
+        parent_b: &Chromosome,
+    ) -> Chromosome;
+}
+
+#[derive(Clone, Debug)]
+pub struct UniformCrossover;
+
+impl CrossoverMethod for UniformCrossover {
+    fn crossover(
+        &self,
+        rng: &mut dyn RngCore,
+        parent_a: &Chromosome,
+        parent_b: &Chromosome,
+    ) -> Chromosome {
+        assert_eq!(parent_a.len(), parent_b.len());
+        // let mut child = vec![];
+        // let gene_count = parent_a.len();
+        // // 1/2几率选择父母中的一个基因权重
+        // for gene_idx in 0..gene_count {
+        //     let gene = if rng.gen_bool(0.5) {
+        //         parent_a[gene_idx]
+        //     } else {
+        //         parent_b[gene_idx]
+        //     };
+        //     child.push(gene);
+        // }
+        // child.into_iter().collect()
+
+        parent_a
+            .iter()
+            .zip(parent_b.iter())
+            .map(|(&a, &b)| if rng.gen_bool(0.5) { a } else { b })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::SeedableRng;
@@ -146,5 +194,18 @@ mod tests {
             (4, 0),
         ]);
         assert_eq!(actual_histogram, expected_histogram);
+    }
+
+    #[test]
+    fn uniform_crossover() {
+        let mut rng = ChaCha8Rng::from_seed(Default::default());
+        let pa = (1..=100).map(|x| x as f32).collect();
+        let pb = (1..=100).map(|x| -x as f32).collect();
+        let child = UniformCrossover.crossover(&mut rng, &pa, &pb);
+        // 与父母不同的基因数量
+        let diff_a = child.iter().zip(pa).filter(|(c, p)| *c != p).count();
+        let diff_b = child.iter().zip(pb).filter(|(c, p)| *c != p).count();
+        assert_eq!(diff_a, 49);
+        assert_eq!(diff_b, 51);
     }
 }
