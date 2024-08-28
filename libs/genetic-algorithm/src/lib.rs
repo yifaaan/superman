@@ -28,6 +28,7 @@ impl<S: SelectionMethod> GeneticAlgorithm<S> {
                 let parent_b = self.selection_method.select(rng, population).chromosome();
                 let mut child = self.crossover_method.crossover(rng, parent_a, parent_b);
                 self.mutation_method.mutate(rng, &mut child);
+                I::create(child)
             })
             .collect()
     }
@@ -36,6 +37,7 @@ impl<S: SelectionMethod> GeneticAlgorithm<S> {
 pub trait Individual {
     fn fitness(&self) -> f32;
     fn chromosome(&self) -> &Chromosome;
+    fn create(chromosome: Chromosome) -> Self;
 }
 
 pub trait SelectionMethod {
@@ -194,23 +196,74 @@ mod tests {
 
     use super::*;
 
-    #[derive(Clone, Debug)]
-    struct TestIndividual {
-        fitness: f32,
-    }
+    // #[derive(Clone, Debug)]
+    // struct TestIndividual {
+    //     fitness: f32,
+    // }
 
+    // impl TestIndividual {
+    //     fn new(fitness: f32) -> Self {
+    //         Self { fitness }
+    //     }
+    // }
+
+    // impl Individual for TestIndividual {
+    //     fn fitness(&self) -> f32 {
+    //         self.fitness
+    //     }
+    //     fn chromosome(&self) -> &Chromosome {
+    //         panic!("not supported for TestIndividual")
+    //     }
+    //     fn create(chromosome: Chromosome) -> Self {
+    //         todo!()
+    //     }
+    // }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum TestIndividual {
+        /// For tests that require access to the chromosome
+        WithChromosome { chromosome: Chromosome },
+
+        /// For tests that don't require access to the chromosome
+        WithFitness { fitness: f32 },
+    }
+    impl PartialEq for Chromosome {
+        fn eq(&self, other: &Self) -> bool {
+            approx::relative_eq!(self.genes.as_slice(), other.genes.as_slice())
+        }
+    }
     impl TestIndividual {
         fn new(fitness: f32) -> Self {
-            Self { fitness }
+            Self::WithFitness { fitness }
         }
     }
 
     impl Individual for TestIndividual {
-        fn fitness(&self) -> f32 {
-            self.fitness
+        fn create(chromosome: Chromosome) -> Self {
+            Self::WithChromosome { chromosome }
         }
+
         fn chromosome(&self) -> &Chromosome {
-            panic!("not supported for TestIndividual")
+            match self {
+                Self::WithChromosome { chromosome } => chromosome,
+
+                Self::WithFitness { .. } => {
+                    panic!("not supported for TestIndividual::WithFitness")
+                }
+            }
+        }
+
+        fn fitness(&self) -> f32 {
+            match self {
+                Self::WithChromosome { chromosome } => {
+                    chromosome.iter().sum()
+
+                    // ^ the simplest fitness function ever - we're just
+                    // summing all the genes together
+                }
+
+                Self::WithFitness { fitness } => *fitness,
+            }
         }
     }
     #[test]
