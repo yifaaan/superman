@@ -4,13 +4,19 @@ use std::ops::Index;
 pub struct GeneticAlgorithm<S> {
     selection_method: S,
     crossover_method: Box<dyn CrossoverMethod>,
+    mutation_method: Box<dyn MutationMethod>,
 }
 
 impl<S: SelectionMethod> GeneticAlgorithm<S> {
-    pub fn new(selection_method: S, crossover_method: impl CrossoverMethod + 'static) -> Self {
+    pub fn new(
+        selection_method: S,
+        crossover_method: impl CrossoverMethod + 'static,
+        mutation_method: impl MutationMethod + 'static,
+    ) -> Self {
         Self {
             selection_method,
             crossover_method: Box::new(crossover_method),
+            mutation_method: Box::new(mutation_method),
         }
     }
     pub fn evolve<I: Individual>(&self, rng: &mut dyn RngCore, population: &[I]) -> Vec<I> {
@@ -21,6 +27,7 @@ impl<S: SelectionMethod> GeneticAlgorithm<S> {
                 let parent_a = self.selection_method.select(rng, population).chromosome();
                 let parent_b = self.selection_method.select(rng, population).chromosome();
                 let mut child = self.crossover_method.crossover(rng, parent_a, parent_b);
+                self.mutation_method.mutate(rng, &mut child);
             })
             .collect()
     }
@@ -137,6 +144,44 @@ impl CrossoverMethod for UniformCrossover {
             .zip(parent_b.iter())
             .map(|(&a, &b)| if rng.gen_bool(0.5) { a } else { b })
             .collect()
+    }
+}
+
+/// 突变
+pub trait MutationMethod {
+    fn mutate(&self, rng: &mut dyn RngCore, child: &mut Chromosome);
+}
+
+#[derive(Clone, Debug)]
+pub struct GaussianMutation {
+    /// Probability of changing a gene:
+    /// - 0.0 = no genes will be touched
+    /// - 1.0 = all genes will be touched
+    chance: f32,
+
+    /// Magnitude of that change:
+    /// - 0.0 = touched genes will not be modified
+    /// - 3.0 = touched genes will be += or -= by at most 3.0
+    coeff: f32,
+}
+
+impl GaussianMutation {
+    pub fn new(chance: f32, coeff: f32) -> Self {
+        assert!(chance >= 0.0 && chance <= 1.0);
+
+        Self { chance, coeff }
+    }
+}
+
+impl MutationMethod for GaussianMutation {
+    fn mutate(&self, rng: &mut dyn RngCore, child: &mut Chromosome) {
+        for gene in child.iter_mut() {
+            let sign = if rng.gen_bool(0.5) { -1.0 } else { 1.0 };
+
+            if rng.gen_bool(self.chance as f64) {
+                *gene += sign * self.coeff * rng.gen::<f32>();
+            }
+        }
     }
 }
 
